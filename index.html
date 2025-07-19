@@ -1,13 +1,15 @@
+
 <!DOCTYPE html>
 <html>
 <head>
-  <title>RetroCall App</title>
+  <title>RetroCall</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     body {
       font-family: monospace;
-      text-align: center;
       background: #111;
       color: white;
+      text-align: center;
       margin: 0;
       padding: 0;
     }
@@ -18,20 +20,16 @@
     #loginScreen {
       display: block;
     }
-    input {
+    input, button {
       font-size: 18px;
       padding: 10px;
+      margin-top: 10px;
       border: none;
       border-radius: 5px;
     }
     button {
-      font-size: 18px;
-      padding: 10px 20px;
-      margin-top: 10px;
-      background-color: #333;
+      background-color: #444;
       color: white;
-      border: none;
-      border-radius: 5px;
     }
     #screen {
       margin: 20px auto;
@@ -51,14 +49,19 @@
     }
     #callStatus {
       margin-top: 20px;
-      font-size: 20px;
+      font-size: 18px;
+    }
+    #incomingCall {
+      background: #222;
+      padding: 10px;
+      display: none;
     }
   </style>
 </head>
 <body>
 
   <div id="loginScreen">
-    <h2>📱 Enter Your Number</h2>
+    <h2>Enter Your Number</h2>
     <input type="text" id="loginInput" placeholder="e.g. 101" />
     <br>
     <button onclick="login()">Login</button>
@@ -67,10 +70,8 @@
 
   <div id="mainApp">
     <h1>📞 RetroCall</h1>
-    <p>Logged in as: <strong id="currentUserName"></strong> (Number: <span id="currentUserNumber"></span>)</p>
-
+    <p>Logged in as <strong id="currentUserName"></strong> (<span id="currentUserNumber"></span>)</p>
     <div id="screen"></div>
-
     <div class="keypad">
       <button onclick="press('1')">1</button>
       <button onclick="press('2')">2</button>
@@ -86,14 +87,31 @@
       <button onclick="call()">📞</button>
     </div>
 
+    <div id="incomingCall">
+      <p id="incomingText"></p>
+      <button onclick="answerCall()">Answer</button>
+      <button onclick="rejectCall()">Reject</button>
+    </div>
+
     <div id="callStatus"></div>
+    <audio id="ringtone" src="https://www.soundjay.com/phone/telephone-ring-01a.mp3" preload="auto"></audio>
   </div>
 
-  <audio id="ringtone" src="https://www.soundjay.com/phone/telephone-ring-01a.mp3" preload="auto"></audio>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.1/firebase-app.js";
+    import { getDatabase, ref, set, onValue, remove } from "https://www.gstatic.com/firebasejs/10.11.1/firebase-database.js";
 
-  <script>
-    let number = "";
-    let loggedInNumber = "";
+    const firebaseConfig = {
+      apiKey: "AIzaSyAfm1SkQSqwpf-82kWrsTgoiXgk2DMOSpU",
+      authDomain: "retrocallapp.firebaseapp.com",
+      projectId: "retrocallapp",
+      storageBucket: "retrocallapp.appspot.com",
+      messagingSenderId: "364436629934",
+      appId: "1:364436629934:web:080df2aa03fad1f6fcc03f"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
 
     const assignedNumbers = {
       "101": "Layan",
@@ -101,6 +119,8 @@
       "103": "Zezo",
       "911": "Police 🚨"
     };
+
+    let number = "", loggedInNumber = "";
 
     function login() {
       const input = document.getElementById("loginInput").value.trim();
@@ -110,10 +130,22 @@
         document.getElementById("currentUserNumber").innerText = input;
         document.getElementById("loginScreen").style.display = "none";
         document.getElementById("mainApp").style.display = "block";
+
+        const incomingRef = ref(db, "calls/" + input);
+        onValue(incomingRef, snapshot => {
+          const callData = snapshot.val();
+          if (callData && callData.from !== loggedInNumber) {
+            document.getElementById("incomingText").innerText = "Incoming call from " + assignedNumbers[callData.from];
+            document.getElementById("incomingCall").style.display = "block";
+            document.getElementById("ringtone").play();
+          }
+        });
       } else {
         document.getElementById("loginError").innerText = "❌ Invalid number. Use 101, 102, or 103.";
       }
     }
+
+    window.login = login;
 
     function press(num) {
       if (number.length < 10) {
@@ -132,19 +164,46 @@
       document.getElementById("callStatus").innerText = "";
     }
 
-    function call() {
-      const contact = assignedNumbers[number];
-      if (contact) {
-        if (number === loggedInNumber) {
-          document.getElementById("callStatus").innerText = "📵 Can't call yourself!";
-          return;
-        }
-        document.getElementById("callStatus").innerText = `📞 Calling ${contact}...`;
-        document.getElementById("ringtone").play();
-      } else {
+    async function call() {
+      const toCall = number;
+      const contact = assignedNumbers[toCall];
+      if (!contact) {
         document.getElementById("callStatus").innerText = "❌ Number not found";
+        return;
       }
+      if (toCall === loggedInNumber) {
+        document.getElementById("callStatus").innerText = "📵 Can't call yourself!";
+        return;
+      }
+
+      const callRef = ref(db, "calls/" + toCall);
+      await set(callRef, { from: loggedInNumber });
+
+      document.getElementById("callStatus").innerText = "📞 Calling " + contact + "...";
+      document.getElementById("ringtone").play();
     }
+
+    async function answerCall() {
+      document.getElementById("incomingCall").style.display = "none";
+      document.getElementById("callStatus").innerText = "✅ Call started!";
+      document.getElementById("ringtone").pause();
+      const callRef = ref(db, "calls/" + loggedInNumber);
+      await remove(callRef);
+    }
+
+    async function rejectCall() {
+      document.getElementById("incomingCall").style.display = "none";
+      document.getElementById("callStatus").innerText = "❌ Call rejected";
+      document.getElementById("ringtone").pause();
+      const callRef = ref(db, "calls/" + loggedInNumber);
+      await remove(callRef);
+    }
+
+    window.press = press;
+    window.call = call;
+    window.clearScreen = clearScreen;
+    window.answerCall = answerCall;
+    window.rejectCall = rejectCall;
   </script>
 
 </body>
